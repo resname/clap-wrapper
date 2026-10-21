@@ -1782,6 +1782,15 @@ static Clap::Library &_library = *new Clap::Library();
   return gui->set_size(_impl->_plugin->_plugin, width, height) ? YES : NO;
 }
 
+- (CGSize)currentGUISize
+{
+  if (!_impl || !_impl->_plugin || !_impl->_plugin->_ext._gui) return CGSizeZero;
+  auto mainGuard = _impl->_plugin->AlwaysMainThread();
+  uint32_t w = 0, h = 0;
+  _impl->_plugin->_ext._gui->get_size(_impl->_plugin->_plugin, &w, &h);
+  return CGSizeMake(w, h);
+}
+
 - (void)setViewController:(ClapAUv3ViewController *)vc
 {
   if (_impl) _impl->_viewController = vc;
@@ -2101,16 +2110,39 @@ static Clap::Library &_library = *new Clap::Library();
   CGRect bounds = self.view.bounds;
   if (bounds.size.width > 0 && bounds.size.height > 0)
   {
-    // Propagate host-initiated container resize to the CLAP plugin
     if ([self.audioUnit canResizeGUI])
     {
+      // Propagate host-initiated container resize to the CLAP plugin
       [self.audioUnit setGUISize:(uint32_t)bounds.size.width height:(uint32_t)bounds.size.height];
-    }
 
-    // Ensure the CLAP plugin's subview fills the container
-    for (CLAPWRAP_ViewClass *subview in self.view.subviews)
+      // Ensure the CLAP plugin's subview fills the container
+      for (CLAPWRAP_ViewClass *subview in self.view.subviews)
+      {
+        subview.frame = bounds;
+      }
+    }
+    else
     {
-      subview.frame = bounds;
+      // Fixed-size plugin: never stretch the CLAP subview to an arbitrarily
+      // sized host container. Stretching it makes the plugin re-layout at the
+      // container's size (e.g., Logic Pro opens a portrait window), which
+      // stacked-and-crops the GUI. Instead, restore the container to the
+      // plugin's fixed size and re-assert preferredContentSize so the host
+      // can adopt the correct window size. Guarded comparison prevents a
+      // layout feedback loop.
+      CGSize fixedSize = [self.audioUnit currentGUISize];
+      if (fixedSize.width > 0 && fixedSize.height > 0 &&
+          !CGSizeEqualToSize(bounds.size, fixedSize))
+      {
+        AUV3LOG("fixed-size GUI: container is %.0fx%.0f, restoring to %.0fx%.0f",
+                bounds.size.width, bounds.size.height, fixedSize.width, fixedSize.height);
+        self.view.frame =
+            CGRectMake(self.view.frame.origin.x, self.view.frame.origin.y, fixedSize.width,
+                       fixedSize.height);
+        [self willChangeValueForKey:@"preferredContentSize"];
+        self.preferredContentSize = fixedSize;
+        [self didChangeValueForKey:@"preferredContentSize"];
+      }
     }
   }
 }

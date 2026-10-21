@@ -68,6 +68,11 @@
 // Called by the view controller when the host resizes the view.
 - (BOOL)setGUISize:(uint32_t)width height:(uint32_t)height;
 
+// Current CLAP GUI size (gui->get_size). Lets the view controller restore
+// its container to a fixed-size plugin's dimensions after the host
+// arbitrarily resizes the container.
+- (CGSize)currentGUISize;
+
 // Called by the view controller to establish the back-reference needed
 // for gui_request_resize to set preferredContentSize on the VC.
 - (void)setViewController:(ClapAUv3ViewController *)vc;
