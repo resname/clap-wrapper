@@ -1905,7 +1905,6 @@ static Clap::Library &_library = *new Clap::Library();
 // Forward-declare private method used by ClapAUv3ContainerView
 @interface ClapAUv3ViewController ()
 - (void)_viewDidMoveToWindow;
-- (void)createPluginGUIEagerly;
 @end
 
 // -----------------------------------------------------------------------
