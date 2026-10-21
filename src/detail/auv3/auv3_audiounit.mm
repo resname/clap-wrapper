@@ -2000,10 +2000,22 @@ static Clap::Library &_library = *new Clap::Library();
 
 - (void)setAudioUnit:(ClapAUv3AudioUnit *)audioUnit
 {
+  BOOL firstTime = (audioUnit != nil && _audioUnit == nil);
   _audioUnit = audioUnit;
   // Establish the back-reference so the AU can return us from
   // requestViewControllerWithCompletionHandler:
   if (audioUnit) audioUnit->_factoryViewController = self;
+
+  // Eagerly create the plugin GUI right after factory creation. Logic Pro's
+  // viewbridge sizes its window from preferredContentSize ONCE at view
+  // capture time: it never calls requestViewControllerWithCompletionHandler:
+  // on the audio unit (log evidence) and never observes later KVO changes.
+  // The 400x500 loadView seed was what Logic saw, so it opened a portrait
+  // window with the landscape editor stacked-and-cropped inside. Creating
+  // the GUI here — long before any capture — puts the plugin's real size in
+  // place in time, and since destroyGUI does not reset it, later captures
+  // keep seeing the real size.
+  if (firstTime) [self createPluginGUIEagerly];
 }
 
 - (void)_createPluginGUI
