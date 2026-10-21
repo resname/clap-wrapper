@@ -2014,7 +2014,18 @@ static Clap::Library &_library = *new Clap::Library();
   // The 400x500 loadView seed was what Logic saw, so it opened a portrait
   // window with the landscape editor stacked-and-cropped inside. Since
   // destroyGUI does not reset the size, later captures keep seeing it.
-  if (firstTime) [self createPluginGUIEagerly];
+  // The factory contract runs createAudioUnitWithComponentDescription: on a
+  // background thread and forbids UI work there (AVAudioUnit's LoadInProcess
+  // instantiation reported OSStatus error 4099 — extension load failed — when
+  // the size prep touched the view on that thread). Jump to the main queue;
+  // factory creation happens long before any host captures the view, so the
+  // size prep is still in place in time.
+  if (firstTime)
+  {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [self createPluginGUIEagerly];
+    });
+  }
 }
 
 - (void)_createPluginGUI
