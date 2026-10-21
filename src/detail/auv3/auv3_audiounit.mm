@@ -1823,6 +1823,11 @@ static Clap::Library &_library = *new Clap::Library();
     (void (^)(AUViewControllerBase *__nullable))completionHandler
 {
   AUV3LOG("requestViewControllerWithCompletionHandler: called (factoryVC=%p)", _factoryViewController);
+  // Create the GUI now, before the host captures the view: the viewbridge
+  // reads preferredContentSize once at capture time and never observes later
+  // changes, so a 400x500 seed leads to Logic Pro opening a portrait window
+  // and embedding the editor stacked-and-cropped.
+  [_factoryViewController createPluginGUIEagerly];
   completionHandler(_factoryViewController);
 }
 
@@ -1900,6 +1905,7 @@ static Clap::Library &_library = *new Clap::Library();
 // Forward-declare private method used by ClapAUv3ContainerView
 @interface ClapAUv3ViewController ()
 - (void)_viewDidMoveToWindow;
+- (void)createPluginGUIEagerly;
 @end
 
 // -----------------------------------------------------------------------
@@ -1971,6 +1977,7 @@ static Clap::Library &_library = *new Clap::Library();
 @implementation ClapAUv3ViewController
 {
   BOOL _guiCreated;
+  CGSize _lastLoggedSize;
 }
 
 - (void)loadView
@@ -2026,6 +2033,24 @@ static Clap::Library &_library = *new Clap::Library();
   {
     _guiCreated = NO;
   }
+}
+
+// Called by requestViewControllerWithCompletionHandler: to create the GUI
+// before the host captures the view. The viewbridge reads preferredContentSize
+// once at capture time and never observes later changes, so the plugin's real
+// size must be set by then. Bypasses the in-window requirement of
+// _tryCreateGUI — the container view is still standalone here, which is fine:
+// createGUIInView parents (and thereby sizes) the CLAP GUI to it directly.
+- (void)createPluginGUIEagerly
+{
+  if (_guiCreated) return;
+  if (!self.audioUnit) return;
+
+  // Force loadView (400x500 seed + default preferredContentSize)
+  [self view];
+  AUV3LOG("eagerly creating plugin GUI before host captures the view");
+  _guiCreated = YES;
+  [self _createPluginGUI];
 }
 
 // Convergence point for GUI creation. Called from multiple triggers:
@@ -2123,25 +2148,19 @@ static Clap::Library &_library = *new Clap::Library();
     }
     else
     {
-      // Fixed-size plugin: never stretch the CLAP subview to an arbitrarily
-      // sized host container. Stretching it makes the plugin re-layout at the
-      // container's size (e.g., Logic Pro opens a portrait window), which
-      // stacked-and-crops the GUI. Instead, restore the container to the
-      // plugin's fixed size and re-assert preferredContentSize so the host
-      // can adopt the correct window size. Guarded comparison prevents a
-      // layout feedback loop.
+      // Fixed-size plugin: never stretch the CLAP subview to the container —
+      // the plugin re-layouts at the container's shape and ends up stacked
+      // and cropped. Do not write the frame back either: writing it during
+      // the layout pass makes the host fight this layout on every pass and
+      // eventually invalidate the window (ViewBridge tears it down, and the
+      // teardown aborts the process).
       CGSize fixedSize = [self.audioUnit currentGUISize];
-      if (fixedSize.width > 0 && fixedSize.height > 0 &&
-          !CGSizeEqualToSize(bounds.size, fixedSize))
+      if (!CGSizeEqualToSize(_lastLoggedSize, bounds.size))
       {
-        AUV3LOG("fixed-size GUI: container is %.0fx%.0f, restoring to %.0fx%.0f",
+        _lastLoggedSize = bounds.size;
+        AUV3LOG("fixed-size GUI: host container is %.0fx%.0f (plugin wants %.0fx%.0f; view not "
+                "resized)",
                 bounds.size.width, bounds.size.height, fixedSize.width, fixedSize.height);
-        self.view.frame =
-            CGRectMake(self.view.frame.origin.x, self.view.frame.origin.y, fixedSize.width,
-                       fixedSize.height);
-        [self willChangeValueForKey:@"preferredContentSize"];
-        self.preferredContentSize = fixedSize;
-        [self didChangeValueForKey:@"preferredContentSize"];
       }
     }
   }
