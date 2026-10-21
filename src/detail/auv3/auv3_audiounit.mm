@@ -2006,15 +2006,14 @@ static Clap::Library &_library = *new Clap::Library();
   // requestViewControllerWithCompletionHandler:
   if (audioUnit) audioUnit->_factoryViewController = self;
 
-  // Eagerly create the plugin GUI right after factory creation. Logic Pro's
-  // viewbridge sizes its window from preferredContentSize ONCE at view
+  // Size the view + preferredContentSize right after factory creation (see
+  // createPluginGUIEagerly). Logic Pro's viewbridge sizes its window from
+  // preferredContentSize ONCE at view
   // capture time: it never calls requestViewControllerWithCompletionHandler:
   // on the audio unit (log evidence) and never observes later KVO changes.
   // The 400x500 loadView seed was what Logic saw, so it opened a portrait
-  // window with the landscape editor stacked-and-cropped inside. Creating
-  // the GUI here — long before any capture — puts the plugin's real size in
-  // place in time, and since destroyGUI does not reset it, later captures
-  // keep seeing the real size.
+  // window with the landscape editor stacked-and-cropped inside. Since
+  // destroyGUI does not reset the size, later captures keep seeing it.
   if (firstTime) [self createPluginGUIEagerly];
 }
 
@@ -2059,9 +2058,23 @@ static Clap::Library &_library = *new Clap::Library();
 
   // Force loadView (400x500 seed + default preferredContentSize)
   [self view];
-  AUV3LOG("eagerly creating plugin GUI before host captures the view");
-  _guiCreated = YES;
-  [self _createPluginGUI];
+
+  // Only set the SIZE here, do not create the GUI: baseview cannot spawn its
+  // GL child view for a container that is not in any window yet, and a failed
+  // spawn aborts the whole extension load (Logic reports "Audio Unit could
+  // not be loaded"). gui->get_size is safe before the spawn — the editor
+  // object exists as soon as the CLAP plugin is instantiated; only window
+  // creation is deferred to the usual in-window triggers.
+  CGSize size = [self.audioUnit currentGUISize];
+  if (size.width > 0 && size.height > 0)
+  {
+    AUV3LOG("prepared preferredContentSize %.0fx%.0f before host capture", size.width,
+            size.height);
+    self.view.frame = CGRectMake(0, 0, size.width, size.height);
+    [self willChangeValueForKey:@"preferredContentSize"];
+    self.preferredContentSize = size;
+    [self didChangeValueForKey:@"preferredContentSize"];
+  }
 }
 
 // Convergence point for GUI creation. Called from multiple triggers:
