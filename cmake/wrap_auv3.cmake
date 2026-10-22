@@ -12,6 +12,8 @@ function(target_add_auv3_wrapper)
             SUBTYPE_CODE
             INSTRUMENT_TYPE
 
+            PREFERRED_GUI_SIZE
+
             CLAP_TARGET_FOR_CONFIG
 
             ENTITLEMENTS  # optional: per-plugin entitlements file (macOS appex signing)
@@ -63,6 +65,16 @@ function(target_add_auv3_wrapper)
 
     set(bhtgoutdir "${CMAKE_CURRENT_BINARY_DIR}/${AUV3_TARGET}-auv3-build-helper-output")
     file(MAKE_DIRECTORY "${bhtgoutdir}")
+
+    if (DEFINED AUV3_PREFERRED_GUI_SIZE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        # Build-time preferred GUI size ("1360x530"). The build helper writes
+        # AUV3PreferredGUIWidth/Height into the appex Info.plist; the view
+        # controller's loadView seeds preferredContentSize from it. The
+        # viewbridge machinery runs loadView before the factory assigns the
+        # audio unit, so a build-time constant is the only source hosts that
+        # capture preferredContentSize exactly once can rely on.
+        file(WRITE "${bhtgoutdir}/auv3_fixedguisize" "${AUV3_PREFERRED_GUI_SIZE}\n")
+    endif()
 
     if (NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
         # macOS: build a host tool that reads info from the hosted CLAP and

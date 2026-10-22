@@ -2001,20 +2001,29 @@ static Clap::Library &_library = *new Clap::Library();
   // CLAP plugin reports its preferred dimensions.
   //
   // Prefer a size known before the view loads, in this order:
-  // 1. a size a factory-created controller already prepared in this process
-  //    (see s_preferredGUIWidth) — for view-service instances without an
-  //    audio unit;
-  // 2. the plugin's own size from the CLAP GUI extension — the plugin is
-  //    instantiated before any view can be loaded (the factory returns the
-  //    audio unit only after creating it), and gui->get_size is valid before
-  //    the GUI is spawned. Hosts capture preferredContentSize exactly once
-  //    at view capture (Logic Pro, the AUAudioUnitRemoteViewController of
-  //    the standalone host) and never observe later KVO changes across the
-  //    viewbridge, so the seed must already be right: a 400x500 seed here is
+  // 1. A build-time size written into this bundle's Info.plist
+  //    (AUV3PreferredGUIWidth/Height). The viewbridge machinery runs
+  //    loadView before the factory ever assigns an audio unit (log
+  //    evidence: loadView fires, then setAudioUnit + the eager size prep
+  //    18ms later), so the plugin cannot be consulted here; hosts capture
+  //    preferredContentSize exactly once at view capture (Logic Pro, the
+  //    AUAudioUnitRemoteViewController of the standalone host) and never
+  //    observe later changes across the viewbridge — a 400x500 seed here is
   //    what makes them open a portrait window with the landscape editor
   //    stacked-and-cropped inside.
+  // 2. a size a factory-created controller already prepared in this process
+  //    (see s_preferredGUIWidth) — for view-service instances in the same
+  //    process;
+  // 3. the plugin's own size from the CLAP GUI extension — valid as soon as
+  //    an audio unit exists (gui->get_size works before the GUI is spawned).
   CGSize initialSize = CGSizeMake(400, 500);
-  if (s_preferredGUIWidth > 0 && s_preferredGUIHeight > 0)
+  NSDictionary *info = [[NSBundle bundleForClass:[self class]] infoDictionary];
+  if (info[@"AUV3PreferredGUIWidth"] && info[@"AUV3PreferredGUIHeight"])
+  {
+    initialSize = CGSizeMake([info[@"AUV3PreferredGUIWidth"] doubleValue],
+                             [info[@"AUV3PreferredGUIHeight"] doubleValue]);
+  }
+  else if (s_preferredGUIWidth > 0 && s_preferredGUIHeight > 0)
   {
     initialSize = CGSizeMake(s_preferredGUIWidth, s_preferredGUIHeight);
   }

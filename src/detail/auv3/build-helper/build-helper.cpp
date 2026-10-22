@@ -4,6 +4,7 @@
 #include <vector>
 #include <functional>
 #include <sstream>
+#include <cstdio>
 
 #include "detail/clap/fsutil.h"
 #include "detail/os/fs.h"
@@ -420,6 +421,29 @@ int main(int argc, char **argv)
     return 1;
   }
   of << intop.rdbuf();
+
+  // Optional preferred GUI size (auv3_fixedguisize written by CMake when
+  // AUV3_PREFERRED_GUI_SIZE is defined). Emitted as Info.plist integers;
+  // the view controller's loadView seeds preferredContentSize from them
+  // (see auv3_audiounit.mm): the viewbridge runs loadView before any audio
+  // unit exists, so hosts that capture preferredContentSize exactly once
+  // can only be satisfied by a build-time constant.
+  {
+    std::ifstream gsz("auv3_fixedguisize");
+    std::string line;
+    if (gsz.is_open() && std::getline(gsz, line))
+    {
+      unsigned w{0}, h{0};
+      if (sscanf(line.c_str(), "%ux%u", &w, &h) == 2 && w > 0 && h > 0)
+      {
+        of << "    <key>AUV3PreferredGUIWidth</key>\n"
+           << "    <integer>" << w << "</integer>\n"
+           << "    <key>AUV3PreferredGUIHeight</key>\n"
+           << "    <integer>" << h << "</integer>\n";
+        std::cout << "    + preferred GUI size " << w << "x" << h << std::endl;
+      }
+    }
+  }
 
   // The principal class is the first factory subclass
   std::string principalClass = units[0].factoryBase() + "0";
