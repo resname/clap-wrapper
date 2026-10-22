@@ -42,6 +42,16 @@ static os_log_t _auv3Log()
 // never suppressed.
 static thread_local bool s_suppressParamObserverEcho = false;
 
+// The plugin GUI size most recently reported by a factory-created view
+// controller in this process. The hosting machinery spawns additional fresh
+// ClapAUv3ViewController instances without an audio unit (in particular the
+// view-service instance the appex creates to serve the host's window); their
+// loadView consults this so they seed their preferredContentSize with the
+// plugin's real size instead of the 400x500 fallback. Process-wide, so every
+// instance of the wrapper module in the same process sees it.
+static std::atomic<uint32_t> s_preferredGUIWidth{0};
+static std::atomic<uint32_t> s_preferredGUIHeight{0};
+
 // Forward-declare private methods used by C++ code before the @implementation
 @interface ClapAUv3AudioUnit ()
 - (void)_replaceParameterTree;
@@ -1989,7 +1999,20 @@ static Clap::Library &_library = *new Clap::Library();
   // Start with a reasonable default size. The viewbridge rejects
   // zero-sized views. The real size is set in _createPluginGUI once the
   // CLAP plugin reports its preferred dimensions.
+  //
+  // Prefer a size a factory-created controller already prepared in this
+  // process (see s_preferredGUIWidth): freshly spawned view-service
+  // instances have no audio unit of their own, and hosts like Logic Pro and
+  // the AVAudioUnit standalone read preferredContentSize exactly once at
+  // view capture — a 400x500 seed here is what makes them open a portrait
+  // window with the landscape editor stacked-and-cropped inside.
   CGSize initialSize = CGSizeMake(400, 500);
+  if (s_preferredGUIWidth > 0 && s_preferredGUIHeight > 0)
+  {
+    initialSize = CGSizeMake(s_preferredGUIWidth, s_preferredGUIHeight);
+    AUV3LOG("loadView: seeding preferredContentSize from prepared size %.0fx%.0f",
+            initialSize.width, initialSize.height);
+  }
   ClapAUv3ContainerView *view = [[ClapAUv3ContainerView alloc]
       initWithFrame:CGRectMake(0, 0, initialSize.width, initialSize.height)];
   view.viewController = self;
@@ -2041,6 +2064,10 @@ static Clap::Library &_library = *new Clap::Library();
     AUV3LOG("GUI created, size=%ux%u", w, h);
     if (w > 0 && h > 0)
     {
+      // Publish the size for fresh view-service instances created later in
+      // this process (see s_preferredGUIWidth / loadView).
+      s_preferredGUIWidth = w;
+      s_preferredGUIHeight = h;
       // Explicit KVO notifications — required for the remote proxy to
       // forward preferredContentSize changes across the XPC boundary
       // to the host process.
@@ -2079,6 +2106,11 @@ static Clap::Library &_library = *new Clap::Library();
   CGSize size = [self.audioUnit currentGUISize];
   if (size.width > 0 && size.height > 0)
   {
+    // Publish for any other view controller instances created in this
+    // process later (view-service instances run loadView without an audio
+    // unit and would otherwise fall back to the 400x500 seed).
+    s_preferredGUIWidth = (uint32_t)size.width;
+    s_preferredGUIHeight = (uint32_t)size.height;
     AUV3LOG("prepared preferredContentSize %.0fx%.0f before host capture", size.width,
             size.height);
     self.view.frame = CGRectMake(0, 0, size.width, size.height);
