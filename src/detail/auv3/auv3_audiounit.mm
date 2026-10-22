@@ -13,6 +13,7 @@
 #include "detail/clap/automation.h"
 
 #include <os/log.h>
+#import <QuartzCore/QuartzCore.h>
 #include <unistd.h>
 #include <iostream>
 #include <memory>
@@ -1987,6 +1988,7 @@ static Clap::Library &_library = *new Clap::Library();
 {
   BOOL _guiCreated;
   CGSize _lastLoggedSize;
+  CGFloat _lastAppliedViewScale;  // avoid redundant transform sets in viewDidLayout
 }
 
 - (void)loadView
@@ -2038,6 +2040,12 @@ static Clap::Library &_library = *new Clap::Library();
       initWithFrame:CGRectMake(0, 0, initialSize.width, initialSize.height)];
   view.viewController = self;
   view.translatesAutoresizingMaskIntoConstraints = YES;
+  // Layer-backed so the fixed-size GUI can be scaled visually (layer
+  // transform) when the host shrinks the container (Logic Pro's "Ansicht %"
+  // resizes the container and lets the plugin view overflow-clip otherwise).
+  // Set before any plugin view exists so the whole subtree is layer-backed
+  // from the start.
+  view.wantsLayer = YES;
   [self setView:view];
   self.preferredContentSize = initialSize;
 }
@@ -2242,8 +2250,37 @@ static Clap::Library &_library = *new Clap::Library();
       // the layout pass makes the host fight this layout on every pass and
       // eventually invalidate the window (ViewBridge tears it down, and the
       // teardown aborts the process).
+      //
+      // But DO scale the subview visually when the container is smaller:
+      // hosts like Logic Pro implement their "Ansicht %" zoom by resizing
+      // the container (680x265 at 50%, 1278x498 at 94%) and let the plugin
+      // view overflow-clip. A layer transform scales the whole plugin view
+      // into the container without changing its frame — the plugin keeps
+      // rendering at its native size and is shown scaled, with no baseview
+      // resize hook and no relayout at a foreign size. The transform is
+      // capped at 1.0 (host containers a few points larger than the plugin
+      // stay unscaled).
       CGSize fixedSize = [self.audioUnit currentGUISize];
-      if (!CGSizeEqualToSize(_lastLoggedSize, bounds.size))
+      if (fixedSize.width > 0 && fixedSize.height > 0)
+      {
+        CGFloat scale = std::min(
+            std::min(bounds.size.width / fixedSize.width, bounds.size.height / fixedSize.height), 1.0);
+        if (scale != _lastAppliedViewScale)
+        {
+          _lastAppliedViewScale = scale;
+          CATransform3D t = CATransform3DMakeScale(scale, scale, 1);
+          for (CLAPWRAP_ViewClass *subview in self.view.subviews)
+          {
+            if (subview.layer)
+            {
+              subview.layer.transform = t;
+              AUV3LOG("scaled plugin view %.4fx for container %.0fx%.0f (plugin %.0fx%.0f)", scale,
+                      bounds.size.width, bounds.size.height, fixedSize.width, fixedSize.height);
+            }
+          }
+        }
+      }
+      else if (!CGSizeEqualToSize(_lastLoggedSize, bounds.size))
       {
         _lastLoggedSize = bounds.size;
         AUV3LOG("fixed-size GUI: host container is %.0fx%.0f (plugin wants %.0fx%.0f; view not "

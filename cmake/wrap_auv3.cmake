@@ -397,7 +397,8 @@ function(target_add_auv3_wrapper)
                 "-framework AVFoundation"
                 "-framework CoreAudio"
                 "-framework CoreAudioKit"
-                "-framework CoreMIDI")
+                "-framework CoreMIDI"
+                "-framework QuartzCore")
     endif()
 
     set_target_properties(${AUV3_TARGET} PROPERTIES
