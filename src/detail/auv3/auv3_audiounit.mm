@@ -2010,9 +2010,9 @@ static Clap::Library &_library = *new Clap::Library();
   if (s_preferredGUIWidth > 0 && s_preferredGUIHeight > 0)
   {
     initialSize = CGSizeMake(s_preferredGUIWidth, s_preferredGUIHeight);
-    AUV3LOG("loadView: seeding preferredContentSize from prepared size %.0fx%.0f",
-            initialSize.width, initialSize.height);
   }
+  AUV3LOG("loadView: VC=%p seed %.0fx%.0f", (__bridge void *)self, initialSize.width,
+          initialSize.height);
   ClapAUv3ContainerView *view = [[ClapAUv3ContainerView alloc]
       initWithFrame:CGRectMake(0, 0, initialSize.width, initialSize.height)];
   view.viewController = self;
@@ -2111,8 +2111,8 @@ static Clap::Library &_library = *new Clap::Library();
     // unit and would otherwise fall back to the 400x500 seed).
     s_preferredGUIWidth = (uint32_t)size.width;
     s_preferredGUIHeight = (uint32_t)size.height;
-    AUV3LOG("prepared preferredContentSize %.0fx%.0f before host capture", size.width,
-            size.height);
+    AUV3LOG("prepared preferredContentSize %.0fx%.0f before host capture (VC=%p)", size.width,
+            size.height, (__bridge void *)self);
     self.view.frame = CGRectMake(0, 0, size.width, size.height);
     [self willChangeValueForKey:@"preferredContentSize"];
     self.preferredContentSize = size;
