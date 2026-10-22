@@ -2000,16 +2000,28 @@ static Clap::Library &_library = *new Clap::Library();
   // zero-sized views. The real size is set in _createPluginGUI once the
   // CLAP plugin reports its preferred dimensions.
   //
-  // Prefer a size a factory-created controller already prepared in this
-  // process (see s_preferredGUIWidth): freshly spawned view-service
-  // instances have no audio unit of their own, and hosts like Logic Pro and
-  // the AVAudioUnit standalone read preferredContentSize exactly once at
-  // view capture — a 400x500 seed here is what makes them open a portrait
-  // window with the landscape editor stacked-and-cropped inside.
+  // Prefer a size known before the view loads, in this order:
+  // 1. a size a factory-created controller already prepared in this process
+  //    (see s_preferredGUIWidth) — for view-service instances without an
+  //    audio unit;
+  // 2. the plugin's own size from the CLAP GUI extension — the plugin is
+  //    instantiated before any view can be loaded (the factory returns the
+  //    audio unit only after creating it), and gui->get_size is valid before
+  //    the GUI is spawned. Hosts capture preferredContentSize exactly once
+  //    at view capture (Logic Pro, the AUAudioUnitRemoteViewController of
+  //    the standalone host) and never observe later KVO changes across the
+  //    viewbridge, so the seed must already be right: a 400x500 seed here is
+  //    what makes them open a portrait window with the landscape editor
+  //    stacked-and-cropped inside.
   CGSize initialSize = CGSizeMake(400, 500);
   if (s_preferredGUIWidth > 0 && s_preferredGUIHeight > 0)
   {
     initialSize = CGSizeMake(s_preferredGUIWidth, s_preferredGUIHeight);
+  }
+  else if (self.audioUnit)
+  {
+    CGSize pluginSize = [self.audioUnit currentGUISize];
+    if (pluginSize.width > 0 && pluginSize.height > 0) initialSize = pluginSize;
   }
   AUV3LOG("loadView: VC=%p seed %.0fx%.0f", (__bridge void *)self, initialSize.width,
           initialSize.height);
