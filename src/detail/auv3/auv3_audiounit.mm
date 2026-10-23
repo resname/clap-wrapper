@@ -1403,7 +1403,28 @@ static Clap::Library &_library = *new Clap::Library();
 - (void)setFullState:(NSDictionary<NSString *, id> *)fullState
 {
   AUV3LOG("setFullState (restore): entered");
-  [super setFullState:fullState];
+  // AUParameterGroup _deserialize:fromSetFullState: throws an uncaught
+  // NSException (SIGTRAP — kills the whole extension process) when handed
+  // a state dictionary whose parameter tree it cannot fully deserialize,
+  // e.g. state saved by a plugin version whose AU parameters have since
+  // been renamed or removed. The kill surfaces in the host as 'The
+  // connection ... was invalidated: Client is gone' during engine setup.
+  // Apple's deserializer cannot be reasoned about from here, so treat the
+  // fullState restore as best-effort: skip it on throw and continue with
+  // the parameter tree at defaults; the CLAP state chunk below is separate
+  // and restored regardless of what Apple's own parameter tree made of it.
+  @try
+  {
+    [super setFullState:fullState];
+  }
+  @catch (NSException *e)
+  {
+    AUV3LOG("setFullState (restore): Apple parameter-tree restore threw: %s",
+            e.reason ? e.reason.UTF8String : "(no reason)");
+    std::cout << "[auv3-appex] WARNING: skipping saved AU parameter state "
+                 "(deserialize threw) — parameters reset to defaults"
+              << std::endl;
+  }
 
   if (_impl && _impl->_plugin && _impl->_plugin->_ext._state)
   {
